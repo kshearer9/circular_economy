@@ -71,7 +71,7 @@ def block(frame, label):
     print(f"  agreement        {hits / n:.3f}  [{lo:.3f}, {hi:.3f}]  {hits}/{n}")
     print(f"  top-2 agreement  {top2 / n:.3f}  [{t2lo:.3f}, {t2hi:.3f}]  {top2}/{n}")
     if frame.coder_field.nunique() > 1:
-        k = cohen_kappa_score(frame.coder_field, frame.model_field)
+        k = cohen_kappa_score(frame.coder_mapped, frame.model_field)
         print(f"  Cohen's kappa    {k:.3f}")
     return dict(label=label, n=n, agree=hits, agreement=round(hits / n, 4),
                 ci_low=round(lo, 4), ci_high=round(hi, 4),
@@ -102,12 +102,29 @@ def main() -> None:
     if len(unclear):
         print(f"  {len(unclear)} marked {UNCLEAR}, reported separately and excluded")
 
-    unknown = set(scored.coder_field) - set(key.model_field) - set(scored.model_field)
+    # The ten-class scheme merged two of the protocol's twelve fields
+    # (Section 3.10 of the methodology). Coder labels in the merged classes are
+    # mapped to their merged targets before scoring, so a code the scheme
+    # defines as equivalent counts as agreement rather than as an automatic
+    # miss. Raw twelve-class agreement is reported alongside.
+    MERGE = {
+        "Materials Science": "Engineering",
+        "Biochemistry, Genetics and Molecular Biology":
+            "Agricultural and Biological Sciences",
+    }
+    scored["coder_mapped"] = scored.coder_field.replace(MERGE)
+    n_merged = int(scored.coder_field.isin(MERGE).sum())
+    if n_merged:
+        print(f"  {n_merged} codes in merged classes mapped per the ten-class scheme")
+
+    unknown = set(scored.coder_mapped) - set(key.model_field) - set(scored.model_field)
     if unknown:
         print(f"  note: fields you used that the model never predicts: {sorted(unknown)}")
 
-    scored["agree"] = scored.coder_field == scored.model_field
-    scored["agree_top2"] = scored.agree | (scored.coder_field == scored.model_second_field)
+    raw = float((scored.coder_field == scored.model_field).mean())
+    scored["agree"] = scored.coder_mapped == scored.model_field
+    scored["agree_top2"] = scored.agree | (scored.coder_mapped == scored.model_second_field)
+    print(f"  raw twelve-class agreement (no mapping): {raw:.3f}")
 
     print("\n" + "=" * 62)
     rows = [block(scored, "ALL model-assigned")]
