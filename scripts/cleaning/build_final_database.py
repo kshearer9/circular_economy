@@ -462,6 +462,60 @@ def attach_global_outcome_id(outcome_authors: pd.DataFrame,
 # 4. SOURCE-STACKED COUNTS, the definition the chapter quotes
 # ---------------------------------------------------------------------------
 
+def build_outcome_organisations() -> pd.DataFrame:
+    """
+    The organisations named on GtR collaboration records.
+
+    Gateway to Research populates its `organisations` field for exactly one
+    outcome type: collaborations, where it is filled on all 1,621 records and
+    empty on all 16,410 others. So this is not author affiliation. It is the
+    partner a project reports having collaborated with, which makes it a
+    funding-side collaboration network, entirely separate from the
+    publication-side co-authorship network built from `outcome_authors`.
+
+    One row per project-outcome-organisation. Names arrive semicolon-joined
+    and sometimes carry a trading name alongside a legal one
+    ("Constellium; Constellium UK Ltd"), so they are split and stripped but
+    not resolved against the institution registry: matching them properly is
+    a separate job and doing it badly here would be worse than leaving the
+    raw string for the analysis to handle.
+
+    Reporting is a research-council obligation and Innovate UK reports nothing
+    to GtR, so coverage is heavily skewed towards education-led projects. That
+    is a property of the reporting regime, not of who collaborates, and any
+    analysis using this table has to say so.
+    """
+    gtr = read("gtr_outcomes")
+    if "organisations" not in gtr.columns:
+        warn("gtr_all_outcomes_clean has no organisations column; "
+             "outcome_organisations will be empty")
+        return pd.DataFrame(columns=["project_id", "gtr_outcome_id",
+                                     "gtr_outcome_type", "organisation"])
+
+    have = gtr[gtr["organisations"].notna()].copy()
+    rows = []
+    for project_id, outcome_id, otype, value in zip(
+            have["project_id"], have["outcome_id"],
+            have["gtr_outcome_type"], have["organisations"]):
+        for name in str(value).split(";"):
+            name = name.strip()
+            if name:
+                rows.append({"project_id": project_id,
+                             "gtr_outcome_id": outcome_id,
+                             "gtr_outcome_type": otype,
+                             "organisation": name})
+
+    frame = pd.DataFrame(rows).drop_duplicates()
+    if len(frame):
+        print(f"\nOutcome organisations")
+        print(f"  {len(frame):,} project-outcome-organisation rows")
+        print(f"  {frame.organisation.nunique():,} distinct organisations "
+              f"across {frame.project_id.nunique():,} projects")
+        by_type = frame.gtr_outcome_type.value_counts()
+        print(f"  outcome types carrying them: {by_type.to_dict()}")
+    return frame
+
+
 def build_source_links(spine_ids: set) -> pd.DataFrame:
     """One row per project-output link, per source, before deduplication.
 
@@ -651,6 +705,8 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_sl_project ON source_outcome_links(project_id)",
     "CREATE INDEX IF NOT EXISTS ix_au_outcome ON outcome_authors(outcome_key)",
     "CREATE INDEX IF NOT EXISTS ix_au_identity ON outcome_authors(identity_id)",
+    "CREATE INDEX IF NOT EXISTS ix_oo_project ON outcome_organisations(project_id)",
+    "CREATE INDEX IF NOT EXISTS ix_oo_org ON outcome_organisations(organisation)",
 ]
 
 
@@ -829,6 +885,7 @@ def main() -> None:
         "authors": read("author_identities"),
         "outcome_authors": attach_global_outcome_id(read("authors_long"),
                                                      project_outcomes),
+        "outcome_organisations": build_outcome_organisations(),
     }
 
     print("\nCoverage")
