@@ -37,7 +37,7 @@ Outputs (in ./data/):
   processed/  -> three CSVs:
     1. gtr_projects_<timestamp>.csv          (kept projects)
     2. gtr_all_with_decision_<timestamp>.csv (all projects + filter decision)
-    3. gtr_validation_sample_<timestamp>.csv    (hand-coding sample)
+    3. gtr_validation_sample_<timestamp>.csv    (hand-coding sample, stratified)
   checkpoints/ -> resume state (screened set + enriched-so-far); safe to delete
                   once a run has finished cleanly.
 
@@ -871,7 +871,9 @@ def main():
                         help="Also collect impact sectors from outcomes (slow)")
     parser.add_argument("--outcome-links", action="store_true", 
                         help="Also collect all outcomes hrefs")
-    parser.add_argument("--validation-size", type=int, default=60)
+    parser.add_argument("--validation-size", type=int, default=100,
+                        help="Total hand-coding sample size, split evenly "
+                             "between the rule's keep and drop strata")
     parser.add_argument("--checkpoint-every", type=int, default=100,
                         help="Save enrichment progress every N projects (default 100)")
     parser.add_argument("--fresh", action="store_true",
@@ -1118,8 +1120,18 @@ def main():
     all_df_out.to_csv(all_path, index=False, encoding="utf-8")
 
     # ---- Output 3: validation sample for hand-coding ----
-    n = min(args.validation_size, len(all_df_out))
-    sample = all_df_out.sample(n=n, random_state=42).copy()
+    # Draw evenly from the keep and drop strata so precision and NPV are separately estimable.
+    half = args.validation_size // 2
+    strata = []
+    for decision in ("keep", "drop"):
+        pool = all_df_out[all_df_out["filter_decision"] == decision]
+        take = min(half, len(pool))
+        if take < half:
+            print(f"  WARNING: only {len(pool)} '{decision}' rows available, "
+                  f"wanted {half}. Precision/NPV interval will be wider.")
+        strata.append(pool.sample(n=take, random_state=42))
+    # Shuffle so the two strata are interleaved for the coder.
+    sample = pd.concat(strata).sample(frac=1, random_state=7).copy()
     # Coerce to string first: a screened set reloaded from the checkpoint CSV
     # can carry NaN (float) in empty text cells, which would break .str.slice.
     sample["abstract_preview"] = sample["abstract_text"].fillna("").astype(str).str.slice(0, 300)
@@ -1138,7 +1150,8 @@ def main():
     print(f"\nOutputs in {PROC_DIR}/:")
     print(f"    {out_path.name}            (kept projects)")
     print(f"    {all_path.name}   (all projects + screening decision)")
-    print(f"    {val_path.name}   (hand-code: fill is_ce_manual with keep/drop)")
+    print(f"    {val_path.name}   (hand-code: fill is_ce_manual with "
+          f"keep/drop/unsure; stratified {half}+{half})")
     print(f"\nCheckpoints in {CKPT_DIR}/ (safe to delete now this run finished cleanly).")
     print("\nDone.")
 
