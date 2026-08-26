@@ -157,14 +157,22 @@ to run when the two disagree.
 
 ### 15. Compare methods and training corpora
 
-Roughly 100 minutes. Rebuilds the gold set and folds from a named crosswalk,
+Roughly five hours in total. Rebuilds the gold set and folds from a named crosswalk,
 re-maps the corpus, then runs the method bake-off and set-ups A to H on 25
 frozen splits.
 
 ```bash
+python3 scripts/classification/run_variant.py --crosswalk james
+python3 scripts/classification/run_variant.py --crosswalk kirsty
 python3 scripts/classification/run_variant.py --crosswalk merged10
 python3 scripts/classification/compare_variants.py
 ```
+
+`james` and `kirsty` are the two independently built crosswalks that
+`compare_variants.py` tests against each other. `merged10` is the ten-class
+taxonomy used from step 16 onward. Step 18's `test_soft_counts.py` and
+`gold_learning_curve.py` both read the `james` folds, so that run is required
+even though the final labelling uses `merged10`.
 
 ### 16. Set the confidence threshold and label every project
 
